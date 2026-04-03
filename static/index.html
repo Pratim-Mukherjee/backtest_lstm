@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>FractalEdge - LSTM-XGBoost Trading Signal</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --accent: #1e40af;
+      --good: #15803d;
+      --bad: #b91c1c;
+      --hold: #374151;
+      --bg: #ffffff;
+      --border: #e5e7eb;
+    }
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f1f5f9;
+      color: #1f2937;
+      line-height: 1.6;
+    }
+    .container {
+      max-width: 980px;
+      margin: 40px auto;
+      background: var(--bg);
+      border-radius: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    header {
+      padding: 28px 32px;
+      background: linear-gradient(135deg, #1e40af, #3b82f6);
+      color: white;
+    }
+    h1 {
+      font-size: 26px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .desc {
+      font-size: 14px;
+      opacity: 0.9;
+    }
+    main {
+      padding: 32px;
+    }
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 18px 16px;
+      margin-bottom: 24px;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: #4b5563;
+      margin-bottom: 6px;
+    }
+    input {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 14px;
+    }
+    button {
+      width: 100%;
+      padding: 14px;
+      font-size: 16px;
+      font-weight: 600;
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      margin-top: 10px;
+      transition: background 0.2s;
+    }
+    button:hover:not(:disabled) { background: #1e3a8a; }
+    button:disabled { background: #9ca3af; cursor: not-allowed; }
+
+    .error {
+      margin: 16px 0;
+      padding: 12px 16px;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #b91c1c;
+      border-radius: 8px;
+      font-size: 14px;
+    }
+
+    .result {
+      margin-top: 24px;
+      padding: 24px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: #f8fafc;
+    }
+    .signal {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 16px;
+    }
+    .buy { color: var(--good); }
+    .sell { color: var(--bad); }
+    .hold { color: var(--hold); }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+      margin: 20px 0;
+    }
+    .stat {
+      background: white;
+      padding: 14px 16px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      font-size: 13px;
+    }
+    .stat strong {
+      display: block;
+      font-size: 18px;
+      margin-top: 4px;
+    }
+
+    .chart-container {
+      margin-top: 24px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      background: white;
+    }
+    .chart-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #4b5563;
+      margin-bottom: 12px;
+    }
+    #chart {
+      width: 100% !important;
+      height: 260px !important;
+    }
+
+    footer {
+      padding: 16px 32px;
+      text-align: center;
+      font-size: 12px;
+      color: #64748b;
+      border-top: 1px solid var(--border);
+      background: #f8fafc;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>FractalEdge</h1>
+      <p class="desc">Hybrid LSTM + XGBoost Trading Signals • Multi-Asset • Institutional Grade Backtesting</p>
+    </header>
+
+    <main>
+      <div class="form-grid">
+        <div>
+          <label for="ticker">Ticker Symbol</label>
+          <input type="text" id="ticker" value="^NSEI" placeholder="e.g. RELIANCE.NS, ^NSEI, BTC-USD">
+        </div>
+        <div>
+          <label for="start_date">Start Date</label>
+          <input type="text" id="start_date" value="2018-01-01">
+        </div>
+      </div>
+
+      <div class="form-grid">
+        <div>
+          <label for="capital">Initial Capital (₹)</label>
+          <input type="number" id="capital" value="100000">
+        </div>
+        <div>
+          <label for="fee">Transaction Fee</label>
+          <input type="number" id="fee" value="0.001" step="0.0001">
+        </div>
+      </div>
+
+      <div class="form-grid">
+        <div>
+          <label for="stop_loss">Stop Loss (%)</label>
+          <input type="number" id="stop_loss" value="0.03" step="0.001">
+        </div>
+        <div>
+          <label for="take_profit">Take Profit (%)</label>
+          <input type="number" id="take_profit" value="0.04" step="0.001">
+        </div>
+      </div>
+
+      <div class="form-grid">
+        <div>
+          <label for="slippage">Slippage (%)</label>
+          <input type="number" id="slippage" value="0.001" step="0.0001">
+        </div>
+      </div>
+
+      <button id="submitBtn">Get Signal & Backtest</button>
+
+      <div id="error" class="error" style="display: none;"></div>
+
+      <div class="result" id="resultBox" style="display: none;">
+        <div class="signal" id="signal"></div>
+
+        <div class="stats-grid">
+          <div class="stat">Total Return<br><strong id="total_return"></strong></div>
+          <div class="stat">Max Drawdown<br><strong id="max_dd"></strong></div>
+          <div class="stat">Buy & Hold<br><strong id="buy_hold_return"></strong></div>
+          <div class="stat">Trades<br><strong id="trades"></strong></div>
+          <div class="stat">Sharpe Ratio<br><strong id="sharpe"></strong></div>
+          <div class="stat">Sortino Ratio<br><strong id="sortino"></strong></div>
+          <div class="stat">Calmar Ratio<br><strong id="calmar"></strong></div>
+        </div>
+
+        <div class="chart-container">
+          <div class="chart-title">Strategy Equity Curve (vs Buy & Hold)</div>
+          <canvas id="chart"></canvas>
+        </div>
+      </div>
+    </main>
+
+    <footer>
+      FractalEdge v2.0 • Multi-Ticker LSTM-XGBoost Hybrid Model • Built for Institutional Performance
+    </footer>
+  </div>
+
+  <script>
+    const submitBtn = document.getElementById("submitBtn");
+    const resultBox = document.getElementById("resultBox");
+    const errorBox = document.getElementById("error");
+
+    let myChart = null;
+
+    submitBtn.addEventListener("click", async () => {
+      const ticker = document.getElementById("ticker").value.trim();
+      const start_date = document.getElementById("start_date").value.trim();
+      const capital = parseFloat(document.getElementById("capital").value);
+      const fee = parseFloat(document.getElementById("fee").value);
+      const stop_loss = parseFloat(document.getElementById("stop_loss").value);
+      const take_profit = parseFloat(document.getElementById("take_profit").value);
+      const slippage = parseFloat(document.getElementById("slippage").value);
+
+      if (!ticker) {
+        showError("Please enter a valid ticker symbol.");
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Fetching data & running backtest...";
+
+      clearError();
+      resultBox.style.display = "none";
+
+      try {
+        const resp = await fetch("/predict", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ticker,
+            start_date,
+            initial_capital: capital,
+            fee,
+            stop_loss_pct: stop_loss,
+            take_profit_pct: take_profit,
+            slippage_pct: slippage
+          })
+        });
+
+        if (!resp.ok) {
+          const err = await resp.json();
+          throw new Error(err.message || `HTTP Error ${resp.status}`);
+        }
+
+        const data = await resp.json();
+
+        // Display Signal
+        const signalEl = document.getElementById("signal");
+        signalEl.textContent = `Latest Signal: ${data.last_signal}`;
+        signalEl.className = `signal ${data.last_signal.toLowerCase()}`;
+
+        // Stats
+        document.getElementById("total_return").textContent = data.total_return.toFixed(2) + "%";
+        document.getElementById("max_dd").textContent = data.max_drawdown.toFixed(2) + "%";
+        document.getElementById("buy_hold_return").textContent = data.buy_hold_return.toFixed(2) + "%";
+        document.getElementById("trades").textContent = data.trades;
+        document.getElementById("sharpe").textContent = data.sharpe_ratio.toFixed(2);
+        document.getElementById("sortino").textContent = data.sortino_ratio.toFixed(2);
+        document.getElementById("calmar").textContent = data.calmar_ratio.toFixed(2);
+
+        resultBox.style.display = "block";
+
+        // Render Equity Curve
+        const ctx = document.getElementById("chart").getContext("2d");
+        const equity = data.equity || [];
+        
+        if (equity.length === 0) {
+          throw new Error("No equity data received from server.");
+        }
+
+        if (myChart) myChart.destroy();
+
+        myChart = new Chart(ctx, {
+          type: "line",
+          data: {
+            labels: Array.from({length: equity.length}, (_, i) => i + 1),
+            datasets: [{
+              label: "Strategy Equity",
+              data: equity,
+              borderColor: "#15803d",
+              backgroundColor: "rgba(21, 128, 61, 0.08)",
+              borderWidth: 2.5,
+              tension: 0.1,
+              pointRadius: 0
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: { duration: 600 },
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                mode: 'index',
+                intersect: false
+              }
+            },
+            scales: {
+              x: { display: false },
+              y: {
+                ticks: {
+                  callback: function(value) {
+                    return "₹" + value.toLocaleString();
+                  }
+                }
+              }
+            }
+          }
+        });
+
+      } catch (err) {
+        showError("❌ " + (err.message || "Something went wrong. Please try again."));
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Get Signal & Backtest";
+      }
+    });
+
+    function showError(msg) {
+      errorBox.innerHTML = msg;
+      errorBox.style.display = "block";
+    }
+
+    function clearError() {
+      errorBox.style.display = "none";
+    }
+  </script>
+</body>
+</html>
